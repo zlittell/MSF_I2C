@@ -6,12 +6,15 @@
 *	then shifts and ORs read/write bit.
 */
 
+/*
+	create a function to check for SB and MB intflags
+	this function should timeout correctly
+*/
+
 //init
 void init_i2c(void)
 {
 	//IO lines
-	
-	//I2C_SDA - PA14 PAD0
 	PORT->Group[0].PMUX[7].reg = PORT_PMUX_PMUXE_C | PORT_PMUX_PMUXO_C;
 	PORT->Group[0].PINCFG[14].reg = PORT_PINCFG_PMUXEN;
 	PORT->Group[0].PINCFG[15].reg = PORT_PINCFG_PMUXEN;
@@ -23,6 +26,7 @@ void init_i2c(void)
 	GCLK->CLKCTRL.reg = 
 		(GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_ID_SERCOM0_CORE | GCLK_CLKCTRL_GEN_GCLK0);
 		
+	//I2C Register Setup
 	SERCOM0->I2CM.CTRLB.reg = (SERCOM_I2CM_CTRLB_SMEN);
 	while(SERCOM0->I2CM.SYNCBUSY.reg);
 	SERCOM0->I2CM.BAUD.reg = 5;	//Should be 400KHz at 8MHz GCLK
@@ -33,7 +37,8 @@ void init_i2c(void)
 	while(SERCOM0->I2CM.SYNCBUSY.reg);
 }
 
-bool i2c_start(uint8_t address)
+//Send a START frame
+bool i2c_write_start(uint8_t address)
 {
 	SERCOM0->I2CM.ADDR.reg = ((address << 1) | 0);
 	
@@ -51,6 +56,7 @@ bool i2c_start(uint8_t address)
 	return true;
 }
 
+//Send a data frame
 bool i2c_write(uint8_t dataToSend)
 {
 	SERCOM0->I2CM.DATA.reg = dataToSend;
@@ -68,18 +74,75 @@ bool i2c_write(uint8_t dataToSend)
 	return true;
 }
 
-void i2c_stop(void)
+//Send a stop frame
+void i2c_write_stop(void)
 {
 	SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
 }
+
+//Send a full message to device
+uint8_t i2c_send(uint8_t i2caddr, uint8_t *data, uint8_t size)
+{
+	bool success = i2c_write_start(i2caddr);
+	
+	uint8_t result = 0;
+	for (int i = 0; i < size; i++)
+	{
+		success = i2c_write(data);
+		*data++;
+		result++;
+		if (!success)
+		{
+			i = size;
+		}
+	}
+	
+	i2c_write_stop();
+}
+
+uint8_t i2c_read(uint8_t i2caddr, uint8_t *data, uint8_t size)
+{
+	uint8_t result = 0;
+	SERCOM0->I2CM.ADDR.reg = ((i2caddr << 1) | 1);
+	
+	//Wait for byte to arrive from peripheral
+	while(!(SERCOM0->I2CM.INTFLAG.reg & SERCOM_I2CM_INTFLAG_SB));
+	
+	//If NACK'd put in stop state and fail out
+	if (SERCOM0->I2CM.STATUS.reg & SERCOM_I2CM_STATUS_RXNACK)
+	{
+		SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
+		return result;
+	}
+	
+	//Set controller to ACK reads
+	SERCOM0->I2CM.CTRLB.reg &= ~SERCOM_I2CM_CTRLB_ACKACT;
+	
+	for (uint8_t i = 0; i < (size - 1); i++)
+	{
+		data = SERCOM0->I2CM.DATA.reg;
+		*data++;
+		result++;
+		while(!(SERCOM0->I2CM.INTFLAG.reg & SERCOM_I2CM_INTFLAG_SB));
+	}
+	
+	if (size)
+	{
+		//NACK the last byte read to end request, idle bus.
+		SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_ACKACT;
+		SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
+		data = SERCOM0->I2CM.DATA.reg;
+		result++
+	}
+	
+	return result;
+}
+
 //WaitForIdle
-//write byte
 //read byte
 //reset
-//start
 //repeated start
 //read with I2C_RESULT
-// stop
 //get_i2c_data_pointer
 //send_i2c_data
 //get_i2c_data_2byte
