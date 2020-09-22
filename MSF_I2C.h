@@ -4,12 +4,9 @@
 #include <stdbool.h>
 
 void init_i2c(void);
-
-
-
-bool i2c_start(uint8_t);
 bool i2c_write(uint8_t);
-void i2c_stop(void);
+uint8_t i2c_send(uint8_t, uint8_t*, uint8_t);
+uint8_t i2c_read(uint8_t, uint8_t*, uint8_t);
 
 
 #endif /* MSF_I2C_H_ */

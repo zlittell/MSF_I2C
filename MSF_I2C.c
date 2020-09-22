@@ -38,7 +38,7 @@ void init_i2c(void)
 }
 
 //Send a START frame
-bool i2c_write_start(uint8_t address)
+static bool i2c_write_start(uint8_t address)
 {
 	SERCOM0->I2CM.ADDR.reg = ((address << 1) | 0);
 	
@@ -75,7 +75,7 @@ bool i2c_write(uint8_t dataToSend)
 }
 
 //Send a stop frame
-void i2c_write_stop(void)
+static void i2c_write_stop(void)
 {
 	SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
 }
@@ -88,8 +88,8 @@ uint8_t i2c_send(uint8_t i2caddr, uint8_t *data, uint8_t size)
 	uint8_t result = 0;
 	for (int i = 0; i < size; i++)
 	{
-		success = i2c_write(data);
-		*data++;
+		success = i2c_write(*data);
+		data++;
 		result++;
 		if (!success)
 		{
@@ -98,6 +98,8 @@ uint8_t i2c_send(uint8_t i2caddr, uint8_t *data, uint8_t size)
 	}
 	
 	i2c_write_stop();
+	
+	return result;
 }
 
 uint8_t i2c_read(uint8_t i2caddr, uint8_t *data, uint8_t size)
@@ -120,8 +122,8 @@ uint8_t i2c_read(uint8_t i2caddr, uint8_t *data, uint8_t size)
 	
 	for (uint8_t i = 0; i < (size - 1); i++)
 	{
-		data = SERCOM0->I2CM.DATA.reg;
-		*data++;
+		*data = SERCOM0->I2CM.DATA.reg;
+		data++;
 		result++;
 		while(!(SERCOM0->I2CM.INTFLAG.reg & SERCOM_I2CM_INTFLAG_SB));
 	}
@@ -131,8 +133,8 @@ uint8_t i2c_read(uint8_t i2caddr, uint8_t *data, uint8_t size)
 		//NACK the last byte read to end request, idle bus.
 		SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_ACKACT;
 		SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
-		data = SERCOM0->I2CM.DATA.reg;
-		result++
+		*data = SERCOM0->I2CM.DATA.reg;
+		result++;
 	}
 	
 	return result;
