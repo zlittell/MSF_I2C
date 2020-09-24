@@ -14,92 +14,90 @@
 //init
 void init_i2c(void)
 {
-	//IO lines
-	PORT->Group[0].PMUX[7].reg = PORT_PMUX_PMUXE_C | PORT_PMUX_PMUXO_C;
-	PORT->Group[0].PINCFG[14].reg = PORT_PINCFG_PMUXEN;
-	PORT->Group[0].PINCFG[15].reg = PORT_PINCFG_PMUXEN;
-	
 	//PM
 	PM->APBCMASK.reg |= PM_APBCMASK_SERCOM0;
 	
 	//GCLK
-	GCLK->CLKCTRL.reg = 
-		(GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_ID_SERCOM0_CORE | GCLK_CLKCTRL_GEN_GCLK0);
-		
-	//I2C Register Setup
+	GCLK->CLKCTRL.reg =
+	(GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_ID_SERCOM0_CORE | GCLK_CLKCTRL_GEN_GCLK0);
+	
+	//Master Mode with 400KHz speed
+	SERCOM0->I2CM.CTRLA.reg = (SERCOM_I2CM_CTRLA_MODE_I2C_MASTER | SERCOM_I2CM_CTRLA_SPEED(0));
+	
+	//Set baud rate, Should be 400KHz at 8MHz GCLK
+	SERCOM0->I2CM.BAUD.bit.BAUD = 5;
+	SERCOM0->I2CM.BAUD.bit.BAUDLOW = 5;
+	
+	//Enable Smart Mode
 	SERCOM0->I2CM.CTRLB.reg = (SERCOM_I2CM_CTRLB_SMEN);
-	while(SERCOM0->I2CM.SYNCBUSY.reg);
-	SERCOM0->I2CM.BAUD.reg = 5;	//Should be 400KHz at 8MHz GCLK
-	while(SERCOM0->I2CM.SYNCBUSY.reg);
-	SERCOM0->I2CM.CTRLA.reg = (SERCOM_I2CM_CTRLA_SDAHOLD(3) | SERCOM_I2CM_CTRLA_MODE_I2C_MASTER | SERCOM_I2CM_CTRLA_ENABLE);
-	while(SERCOM0->I2CM.SYNCBUSY.reg);
-	SERCOM0->I2CM.STATUS.reg |= SERCOM_I2CM_STATUS_BUSSTATE(1);
-	while(SERCOM0->I2CM.SYNCBUSY.reg);
+	
+	//IO lines
+	PORT->Group[0].WRCONFIG.reg = 
+		(PORT_WRCONFIG_WRPINCFG | PORT_WRCONFIG_WRPMUX | PORT_WRCONFIG_PMUX(0x2) | PORT_WRCONFIG_PMUXEN | PORT_PA14 | PORT_PA15);
+	
+	//Enable I2C
+	while(SERCOM0->I2CM.SYNCBUSY.bit.ENABLE);
+	SERCOM0->I2CM.CTRLA.bit.ENABLE = 1;
+	
+	//Force Idle Bus State
+	while(SERCOM0->I2CM.SYNCBUSY.bit.SYSOP);
+	SERCOM0->I2CM.STATUS.bit.BUSSTATE = 0x1;
+	
+	//Enable interrupts for master on bus and slave on bus
+	//SERCOM0->I2CM.INTENSET.reg = SERCOM_I2CM_INTENSET_MB | SERCOM_I2CM_INTENSET_SB;
 }
 
-//Send a START frame
-static bool i2c_write_start(uint8_t address)
-{
-	SERCOM0->I2CM.ADDR.reg = ((address << 1) | 0);
-	
-	while(!(SERCOM0->I2CM.INTFLAG.reg & SERCOM_I2CM_INTFLAG_MB)); //wait for send
-	
-	SERCOM0->I2CM.INTFLAG.reg = SERCOM_I2CM_INTFLAG_MB;
-	
-	if (SERCOM0->I2CM.STATUS.reg & SERCOM_I2CM_STATUS_RXNACK)
-	{
-		//NACK failed. initiate stop
-		SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
-		return false;
-	}
-	
-	return true;
-}
-
-//Send a data frame
-bool i2c_write(uint8_t dataToSend)
-{
-	SERCOM0->I2CM.DATA.reg = dataToSend;
-	
-	while(!(SERCOM0->I2CM.INTFLAG.reg & SERCOM_I2CM_INTFLAG_MB));	//wait for send
-	
-	SERCOM0->I2CM.INTFLAG.reg = SERCOM_I2CM_INTFLAG_MB;
-	
-	if(SERCOM0->I2CM.STATUS.reg & SERCOM_I2CM_STATUS_RXNACK)
-	{
-		SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
-		return false;
-	}
-	
-	return true;
-}
-
-//Send a stop frame
-static void i2c_write_stop(void)
-{
-	SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
-}
-
-//Send a full message to device
 uint8_t i2c_send(uint8_t i2caddr, uint8_t *data, uint8_t size)
 {
-	bool success = i2c_write_start(i2caddr);
+	// Set bus to ACK received data
+	SERCOM0->I2CM.CTRLB.reg &= ~SERCOM_I2CM_CTRLB_ACKACT;
+	
+	//Load write address
+	while(SERCOM0->I2CM.SYNCBUSY.bit.SYSOP);
+	SERCOM0->I2CM.ADDR.reg = ((i2caddr << 1) | 0);
+	
+	while(!(SERCOM0->I2CM.INTFLAG.bit.MB));
+	SERCOM0->I2CM.INTFLAG.reg = SERCOM_I2CM_INTFLAG_MB;	
 	
 	uint8_t result = 0;
 	for (int i = 0; i < size; i++)
 	{
-		success = i2c_write(*data);
+		while(SERCOM0->I2CM.SYNCBUSY.bit.SYSOP);
+		SERCOM0->I2CM.DATA.reg = (uint8_t)*data;
+		while(!(SERCOM0->I2CM.INTFLAG.bit.MB));
+		SERCOM0->I2CM.INTFLAG.reg = SERCOM_I2CM_INTFLAG_MB;
 		data++;
 		result++;
-		if (!success)
-		{
-			i = size;
-		}
 	}
-	
-	i2c_write_stop();
+	while(SERCOM0->I2CM.SYNCBUSY.bit.SYSOP);
+	SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
 	
 	return result;
+}
+
+void simpleTest()
+{
+	uint8_t data[10] = {0x80, 0x01, 0x04, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xAA};
+	// Set bus to ACK received data
+	SERCOM0->I2CM.CTRLB.reg &= ~SERCOM_I2CM_CTRLB_ACKACT;
+	
+	//Load write address
+	while(SERCOM0->I2CM.SYNCBUSY.bit.SYSOP);
+	SERCOM0->I2CM.ADDR.reg = ((0x60 << 1) | 0);
+	
+	while(!(SERCOM0->I2CM.INTFLAG.bit.MB));
+	SERCOM0->I2CM.INTFLAG.reg = SERCOM_I2CM_INTFLAG_MB;	
+	
+	for (int i = 0; i < 10; i++)
+	{
+		while(SERCOM0->I2CM.SYNCBUSY.bit.SYSOP);
+		SERCOM0->I2CM.DATA.reg = data[i];
+		while(!(SERCOM0->I2CM.INTFLAG.bit.MB));
+		SERCOM0->I2CM.INTFLAG.reg = SERCOM_I2CM_INTFLAG_MB;
+	}
+	
+	while(SERCOM0->I2CM.SYNCBUSY.bit.SYSOP);
+	SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
 }
 
 uint8_t i2c_read(uint8_t i2caddr, uint8_t *data, uint8_t size)
