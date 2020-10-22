@@ -1,17 +1,23 @@
+/**
+* @file MSF_SAMD11_I2C.c
+* @brief MSF I2C Library, SAMD11 Implementation.
+* @note This implementation uses the none shifted 7 bit address.
+* @author Zack Littell
+* @company Mechanical Squid Factory
+* @project MSF_I2C
+*/
 #include <sam.h>
 #include "MSF_I2C.h"
-
-/*
-*	This library uses the none shifted 7 bit address as an input
-*	then shifts and ORs read/write bit.
-*/
 
 /*
 	create a function to check for SB and MB intflags
 	this function should timeout correctly
 */
 
-//init
+/**
+	@brief Init I2C
+	@details Function to initialize I2C bus on device.
+*/
 void init_i2c(void)
 {
 	//PM
@@ -47,6 +53,14 @@ void init_i2c(void)
 	//SERCOM0->I2CM.INTENSET.reg = SERCOM_I2CM_INTENSET_MB | SERCOM_I2CM_INTENSET_SB;
 }
 
+/**
+	@brief I2C Send
+	@details Send array of bytes to I2C device
+	@param[in] i2caddr 7 bit I2C address
+	@param[in] data Data to write to I2C bus
+	@param[in] size Length of the array to write
+	@returns Number of bytes written
+*/
 uint8_t i2c_send(uint8_t i2caddr, uint8_t *data, uint8_t size)
 {
 	// Set bus to ACK received data
@@ -75,31 +89,14 @@ uint8_t i2c_send(uint8_t i2caddr, uint8_t *data, uint8_t size)
 	return result;
 }
 
-void simpleTest()
-{
-	uint8_t data[10] = {0x80, 0x01, 0x04, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xAA};
-	// Set bus to ACK received data
-	SERCOM0->I2CM.CTRLB.reg &= ~SERCOM_I2CM_CTRLB_ACKACT;
-	
-	//Load write address
-	while(SERCOM0->I2CM.SYNCBUSY.bit.SYSOP);
-	SERCOM0->I2CM.ADDR.reg = ((0x60 << 1) | 0);
-	
-	while(!(SERCOM0->I2CM.INTFLAG.bit.MB));
-	SERCOM0->I2CM.INTFLAG.reg = SERCOM_I2CM_INTFLAG_MB;	
-	
-	for (int i = 0; i < 10; i++)
-	{
-		while(SERCOM0->I2CM.SYNCBUSY.bit.SYSOP);
-		SERCOM0->I2CM.DATA.reg = data[i];
-		while(!(SERCOM0->I2CM.INTFLAG.bit.MB));
-		SERCOM0->I2CM.INTFLAG.reg = SERCOM_I2CM_INTFLAG_MB;
-	}
-	
-	while(SERCOM0->I2CM.SYNCBUSY.bit.SYSOP);
-	SERCOM0->I2CM.CTRLB.reg |= SERCOM_I2CM_CTRLB_CMD(3);
-}
-
+/**
+	@brief I2C Read
+	@details Reads data from I2C device
+	@param[in] i2caddr 7 bit I2C address
+	@param[out] data Array to store read data
+	@param[in] size Number of bytes to read from i2c device
+	@returns Number of bytes read
+*/
 uint8_t i2c_read(uint8_t i2caddr, uint8_t *data, uint8_t size)
 {
 	uint8_t result = 0;
@@ -137,16 +134,3 @@ uint8_t i2c_read(uint8_t i2caddr, uint8_t *data, uint8_t size)
 	
 	return result;
 }
-
-//WaitForIdle
-//read byte
-//reset
-//repeated start
-//read with I2C_RESULT
-//get_i2c_data_pointer
-//send_i2c_data
-//get_i2c_data_2byte
-//get_i2c_data_2byte_pointer
-
-//send data with length
-//receive data with length also allow pointers or have another function
